@@ -1,0 +1,999 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>POB INCREASE – SBM | Tarefas</title>
+
+<!-- React -->
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+<!-- Firebase compat (v10) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;background:#f2f1ed;color:#1a1a18;min-height:100vh}
+input,select,textarea,button{font-family:inherit;font-size:14px}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#ccc;border-radius:3px}
+.fade-in{animation:fadeIn 0.18s ease}
+@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// CONFIGURAÇÃO FIREBASE
+// databaseURL: após criar o Realtime Database, cole a URL aqui.
+// Formato: "https://task-manager-1e288-default-rtdb.firebaseio.com"
+// ─────────────────────────────────────────────────────────────────────────────
+const FIREBASE_CONFIG = {
+  apiKey:            "AIzaSyBSntN-A6UBXtfh_P8pdDP_M6FDpXHzlE0",
+  authDomain:        "task-manager-1e288.firebaseapp.com",
+  projectId:         "task-manager-1e288",
+  storageBucket:     "task-manager-1e288.firebasestorage.app",
+  messagingSenderId: "277675246507",
+  appId:             "1:277675246507:web:630c31d4b72ebd59d048ee",
+  databaseURL:       "https://task-manager-1e288-default-rtdb.firebaseio.com"
+};
+
+firebase.initializeApp(FIREBASE_CONFIG);
+const db = firebase.database();
+</script>
+
+<script type="text/babel">
+const { useState, useEffect, useMemo, useCallback } = React;
+
+// ─── Constantes ───────────────────────────────────────────────────────────────
+const DISCIPLINES = [
+  { id:'est', name:'Estrutura',   color:'#185FA5', bg:'#E6F1FB', border:'#85B7EB', text:'#0C447C' },
+  { id:'tub', name:'Tubulação',   color:'#0F6E56', bg:'#E1F5EE', border:'#5DCAA5', text:'#085041' },
+  { id:'seg', name:'Segurança',   color:'#A32D2D', bg:'#FCEBEB', border:'#F09595', text:'#791F1F' },
+  { id:'aco', name:'Acomodações', color:'#854F0B', bg:'#FAEEDA', border:'#EF9F27', text:'#633806' },
+  { id:'hva', name:'HVAC',        color:'#533C8A', bg:'#EEEDFE', border:'#AFA9EC', text:'#3C3489' },
+  { id:'ele', name:'Elétrica',    color:'#993556', bg:'#FBEAF0', border:'#ED93B1', text:'#72243E' },
+  { id:'ins', name:'Instalação',  color:'#5F5E5A', bg:'#F1EFE8', border:'#B4B2A9', text:'#444441' },
+  { id:'pm',  name:'PM',          color:'#0A6E75', bg:'#E0F4F5', border:'#5BC4CB', text:'#084F54' },
+];
+const discById = Object.fromEntries(DISCIPLINES.map(d => [d.id, d]));
+
+const TAG_COLORS = [
+  { id:'blue',   color:'#185FA5', bg:'#E6F1FB', border:'#85B7EB', text:'#0C447C' },
+  { id:'teal',   color:'#0F6E56', bg:'#E1F5EE', border:'#5DCAA5', text:'#085041' },
+  { id:'red',    color:'#A32D2D', bg:'#FCEBEB', border:'#F09595', text:'#791F1F' },
+  { id:'amber',  color:'#854F0B', bg:'#FAEEDA', border:'#EF9F27', text:'#633806' },
+  { id:'purple', color:'#533C8A', bg:'#EEEDFE', border:'#AFA9EC', text:'#3C3489' },
+  { id:'pink',   color:'#993556', bg:'#FBEAF0', border:'#ED93B1', text:'#72243E' },
+  { id:'gray',   color:'#5F5E5A', bg:'#F1EFE8', border:'#B4B2A9', text:'#444441' },
+  { id:'green',  color:'#3B6D11', bg:'#EAF3DE', border:'#97C459', text:'#27500A' },
+];
+const tagColorById = Object.fromEntries(TAG_COLORS.map(c => [c.id, c]));
+
+const DEFAULT_TAGS = [
+  { id:'tag-rfi',   name:'RFI',         colorId:'blue'   },
+  { id:'tag-rev',   name:'Revisão Doc', colorId:'amber'  },
+  { id:'tag-inter', name:'Interface',   colorId:'purple' },
+  { id:'tag-crit',  name:'Crítico',     colorId:'red'    },
+];
+
+const PRIORITIES = {
+  low:      { label:'Baixa',   color:'#0C447C', bg:'#E6F1FB', border:'#85B7EB' },
+  medium:   { label:'Média',   color:'#633806', bg:'#FAEEDA', border:'#EF9F27' },
+  high:     { label:'Alta',    color:'#A32D2D', bg:'#FCEBEB', border:'#F09595' },
+  critical: { label:'Crítica', color:'#501313', bg:'#F7C1C1', border:'#E24B4A' },
+};
+
+const STATUSES = [
+  { id:'todo',     label:'A Fazer'      },
+  { id:'progress', label:'Em Andamento' },
+  { id:'review',   label:'Em Revisão'  },
+  { id:'done',     label:'Concluído'   },
+];
+const statusById = Object.fromEntries(STATUSES.map(s => [s.id, s]));
+
+const MONTHS_PT   = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+const WEEKDAYS_PT = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+
+const DEFAULT_MEMBERS = [
+  'Leonardo Duque','Jessica Tiburcio','Felipe Amaral','Felipe Sá',
+];
+// Membros iniciais gravados no Firebase na primeira vez que o app abre.
+// Após isso, a lista é gerenciada exclusivamente pela interface.
+
+function newId() { return Date.now().toString(36) + Math.random().toString(36).slice(2); }
+
+function dateStatus(date) {
+  if (!date) return null;
+  const t = new Date(); t.setHours(0,0,0,0);
+  const d = new Date(date); d.setHours(0,0,0,0);
+  const diff = Math.round((d - t) / 86400000);
+  // Atraso só a partir do dia seguinte ao vencimento. Dia do vencimento = "Hoje", sem atraso.
+  if (diff < 0)   return { label:`${Math.abs(diff)}d atrasada`, color:'#A32D2D', bg:'#FCEBEB', border:'#F09595' };
+  if (diff === 0) return { label:'Hoje',     color:'#633806', bg:'#FAEEDA', border:'#EF9F27' };
+  if (diff <= 3)  return { label:`${diff}d`, color:'#854F0B', bg:'#FAEEDA', border:'#EF9F27' };
+  return { label:d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}), color:'#3B6D11', bg:'#EAF3DE', border:'#97C459' };
+}
+
+const S = {
+  inp:  { width:'100%', padding:'7px 10px', border:'0.5px solid rgba(0,0,0,0.2)', borderRadius:8, fontSize:13, fontFamily:'inherit', background:'#fff' },
+  lbl:  { fontSize:11, fontWeight:600, color:'#888', textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:5, display:'block' },
+  btn:  { padding:'6px 12px', border:'0.5px solid rgba(0,0,0,0.15)', borderRadius:8, cursor:'pointer', fontSize:13, background:'#fff', fontFamily:'inherit' },
+  btnP: { padding:'7px 16px', background:'#185FA5', color:'#fff', border:'none', borderRadius:8, cursor:'pointer', fontWeight:600, fontSize:13, fontFamily:'inherit' },
+};
+
+function Pill({ label, color, bg, border }) {
+  return (
+    <span style={{ display:'inline-flex', alignItems:'center', fontSize:11, padding:'2px 7px', borderRadius:999, fontWeight:500, border:`0.5px solid ${border}`, background:bg, color }}>
+      {label}
+    </span>
+  );
+}
+
+// ─── Firebase helpers ─────────────────────────────────────────────────────────
+function fbListen(path, cb) {
+  const ref = db.ref(path);
+  ref.on('value', snap => cb(snap.val()));
+  return () => ref.off();
+}
+async function fbSet(path, data)    { await db.ref(path).set(data); }
+async function fbUpdate(path, data) { await db.ref(path).update(data); }
+async function fbRemove(path)       { await db.ref(path).remove(); }
+
+// ─── Tela de seleção de usuário ───────────────────────────────────────────────
+function UserSelectScreen({ members, onSelect, onAddMember, onRemoveMember }) {
+  const [newName,   setNewName]   = useState('');
+  const [removing,  setRemoving]  = useState(false); // modo de remoção
+
+  const add = () => { const n=newName.trim(); if(!n)return; onAddMember(n); setNewName(''); };
+
+  return (
+    <div style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', padding:24 }}>
+      <div className="fade-in" style={{ background:'#fff', borderRadius:20, border:'0.5px solid rgba(0,0,0,0.12)', boxShadow:'0 8px 40px rgba(0,0,0,0.1)', width:'100%', maxWidth:440, overflow:'hidden' }}>
+
+        {/* Cabeçalho azul */}
+        <div style={{ background:'#185FA5', padding:'28px 28px 24px' }}>
+          <div style={{ fontSize:24, marginBottom:6 }}>⚓</div>
+          <div style={{ fontWeight:700, fontSize:17, color:'#fff', lineHeight:1.3 }}>POB INCREASE – SBM</div>
+          <div style={{ fontSize:12, color:'rgba(255,255,255,0.7)', marginTop:3 }}>Gerenciador de tarefas · Interface técnica</div>
+        </div>
+
+        <div style={{ padding:'24px 28px 28px' }}>
+          {/* Título + botão editar lista */}
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:4 }}>
+            <div style={{ fontWeight:600, fontSize:14, color:'#222' }}>Quem está acessando agora?</div>
+            <button onClick={()=>setRemoving(!removing)} style={{
+              fontSize:11, padding:'3px 9px', borderRadius:6, cursor:'pointer', fontFamily:'inherit',
+              border: removing ? '0.5px solid #F09595' : '0.5px solid rgba(0,0,0,0.15)',
+              background: removing ? '#FCEBEB' : '#fafaf8',
+              color: removing ? '#A32D2D' : '#888',
+            }}>{removing ? '✓ Concluir' : '✎ Editar lista'}</button>
+          </div>
+          <div style={{ fontSize:12, color:'#999', marginBottom:18, lineHeight:1.6 }}>
+            {removing
+              ? 'Clique no ✕ para remover um nome da lista.'
+              : 'Selecione seu nome. A escolha fica salva neste navegador.'
+            }
+          </div>
+
+          {/* Lista de membros */}
+          <div style={{ display:'flex', flexDirection:'column', gap:6, marginBottom:20 }}>
+            {members.map(m => (
+              <div key={m} style={{ display:'flex', alignItems:'center', gap:8 }}>
+                {/* Botão principal — clicável só quando não está no modo remoção */}
+                <button
+                  onClick={() => !removing && onSelect(m)}
+                  style={{
+                    flex:1, textAlign:'left', padding:'10px 14px',
+                    border: removing ? '0.5px solid rgba(0,0,0,0.08)' : '0.5px solid rgba(0,0,0,0.12)',
+                    borderRadius:10, cursor: removing ? 'default' : 'pointer',
+                    background:'#fafaf8', fontSize:13, fontWeight:500,
+                    color: removing ? '#aaa' : '#222',
+                    fontFamily:'inherit', display:'flex', alignItems:'center', gap:10,
+                    opacity: removing ? 0.7 : 1,
+                  }}
+                  onMouseEnter={e=>{ if(!removing) e.currentTarget.style.background='#EBF4FF'; }}
+                  onMouseLeave={e=>{ e.currentTarget.style.background='#fafaf8'; }}
+                >
+                  <span style={{ width:30, height:30, borderRadius:'50%', background: removing ? '#ccc' : '#185FA5', color:'#fff', display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:700, flexShrink:0 }}>
+                    {m.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase()}
+                  </span>
+                  {m}
+                </button>
+
+                {/* Botão remover — só aparece no modo edição */}
+                {removing && (
+                  <button
+                    onClick={() => onRemoveMember(m)}
+                    title={`Remover ${m}`}
+                    style={{ width:32, height:32, borderRadius:'50%', border:'0.5px solid #F09595', background:'#FCEBEB', color:'#A32D2D', cursor:'pointer', fontSize:16, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, fontFamily:'inherit' }}
+                  >✕</button>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Adicionar novo membro */}
+          <div style={{ borderTop:'0.5px solid rgba(0,0,0,0.08)', paddingTop:16 }}>
+            <div style={{ ...S.lbl, marginBottom:8 }}>Adicionar novo membro</div>
+            <div style={{ display:'flex', gap:6 }}>
+              <input style={S.inp} type="text" value={newName} placeholder="Nome completo"
+                onChange={e=>setNewName(e.target.value)}
+                onKeyDown={e=>e.key==='Enter'&&(e.preventDefault(),add())} />
+              <button onClick={add} style={{ ...S.btnP, whiteSpace:'nowrap' }}>Adicionar</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── App ──────────────────────────────────────────────────────────────────────
+function App() {
+  const [currentUser, setCurrentUser] = useState(() => localStorage.getItem('fpso_user') || null);
+  const [members,     setMembers]     = useState(DEFAULT_MEMBERS);
+  const [tasks,       setTasks]       = useState([]);
+  const [tags,        setTags]        = useState(DEFAULT_TAGS);
+  const [view,        setView]        = useState('board');
+  const [modal,       setModal]       = useState(null);
+  const [tagModal,    setTagModal]    = useState(false);
+  const [membersModal,setMembersModal]= useState(false);
+  const [search,      setSearch]      = useState('');
+  const [filterDisc,   setFilterDisc]   = useState('');
+  const [filterPri,    setFilterPri]    = useState('');
+  const [filterPerson, setFilterPerson] = useState('');
+  const [filterCreator,setFilterCreator]= useState('');
+  const [showDone,    setShowDone]    = useState(false);
+  const [calMonth,    setCalMonth]    = useState(() => { const d=new Date(); return {y:d.getFullYear(),m:d.getMonth()}; });
+  const [syncing,     setSyncing]     = useState(false);
+  const [connected,   setConnected]   = useState(true);
+  const [lastSync,    setLastSync]    = useState(null);
+
+  // ── Firebase listeners ────────────────────────────────────────────────────
+  useEffect(() => {
+    const connRef = db.ref('.info/connected');
+    connRef.on('value', snap => setConnected(!!snap.val()));
+
+    const u1 = fbListen('tasks', val => {
+      setTasks(val ? Object.values(val) : []);
+      setLastSync(new Date());
+    });
+    const u2 = fbListen('tags', val => {
+      setTags(val ? Object.values(val) : DEFAULT_TAGS);
+    });
+    const u3 = fbListen('members', val => {
+      if (val && Array.isArray(val) && val.length > 0) setMembers(val);
+    });
+
+    return () => { u1(); u2(); u3(); connRef.off(); };
+  }, []);
+
+  const selectUser = name => {
+    setCurrentUser(name);
+    localStorage.setItem('fpso_user', name);
+  };
+
+  const addMember = async name => {
+    const updated = [...new Set([...members, name])];
+    await fbSet('members', updated);
+    selectUser(name);
+  };
+
+  const removeMember = async name => {
+    const updated = members.filter(m => m !== name);
+    await fbSet('members', updated);
+    if (currentUser === name) {
+      setCurrentUser(null);
+      localStorage.removeItem('fpso_user');
+    }
+  };
+
+  // ── Derivados ─────────────────────────────────────────────────────────────
+  const tagById = useMemo(() => Object.fromEntries(tags.map(t=>[t.id,t])), [tags]);
+
+  // Histórico de todos os nomes já usados como responsável em qualquer task
+  const allPastAssignees = useMemo(() =>
+    [...new Set(tasks.flatMap(t => t.assignees || []))].sort()
+  , [tasks]);
+
+  const filtered = useMemo(() => tasks.filter(t => {
+    if (search        && !t.title.toLowerCase().includes(search.toLowerCase())) return false;
+    if (filterDisc    && !(t.discs     ||[]).includes(filterDisc))              return false;
+    if (filterPri     && t.priority !== filterPri)                              return false;
+    if (filterPerson  && !(t.assignees ||[]).includes(filterPerson))            return false;
+    if (filterCreator && t.createdBy !== filterCreator)                         return false;
+    return true;
+  }), [tasks, search, filterDisc, filterPri, filterPerson, filterCreator]);
+
+  const active = filtered.filter(t => t.status !== 'done');
+  const done   = filtered.filter(t => t.status === 'done');
+
+  const stats = useMemo(() => {
+    const today = new Date(); today.setHours(0,0,0,0);
+    return {
+      total:   tasks.length,
+      active:  tasks.filter(t=>t.status!=='done').length,
+      overdue: tasks.filter(t=>t.status!=='done'&&t.dueDate&&new Date(new Date(t.dueDate).setHours(0,0,0,0))<today).length,
+      done:    tasks.filter(t=>t.status==='done').length,
+    };
+  }, [tasks]);
+
+  // ── CRUD ──────────────────────────────────────────────────────────────────
+  const saveTask = useCallback(async task => {
+    setSyncing(true);
+    try {
+      const now = new Date().toISOString();
+      if (task.id && tasks.find(t=>t.id===task.id)) {
+        await fbSet(`tasks/${task.id}`, { ...task, updatedAt:now, updatedBy:currentUser });
+      } else {
+        const id = newId();
+        await fbSet(`tasks/${id}`, { ...task, id, createdAt:now, createdBy:currentUser });
+      }
+    } finally { setSyncing(false); }
+    setModal(null);
+  }, [tasks, currentUser]);
+
+  const deleteTask = useCallback(async id => {
+    if (!confirm('Excluir tarefa? Esta ação não pode ser desfeita.')) return;
+    setSyncing(true);
+    try { await fbRemove(`tasks/${id}`); } finally { setSyncing(false); }
+  }, []);
+
+  const setStatus = useCallback(async (id, status) => {
+    setSyncing(true);
+    const now = new Date().toISOString();
+    try {
+      await fbUpdate(`tasks/${id}`, {
+        status,
+        completedAt: status==='done' ? now : null,
+        completedBy: status==='done' ? currentUser : null,
+        updatedAt: now,
+        updatedBy: currentUser,
+      });
+    } finally { setSyncing(false); }
+  }, [currentUser]);
+
+  const toggleCheck = useCallback(async (taskId, itemId) => {
+    const task = tasks.find(t=>t.id===taskId);
+    if (!task) return;
+    const checklist = task.checklist.map(c=>c.id===itemId?{...c,done:!c.done}:c);
+    setSyncing(true);
+    try {
+      await fbUpdate(`tasks/${taskId}`, { checklist, updatedAt:new Date().toISOString(), updatedBy:currentUser });
+    } finally { setSyncing(false); }
+  }, [tasks, currentUser]);
+
+  const saveTags = useCallback(async newTags => {
+    setSyncing(true);
+    try {
+      const ids = new Set(newTags.map(t=>t.id));
+      const updates = { tags: Object.fromEntries(newTags.map(t=>[t.id,t])) };
+      tasks.forEach(t => {
+        const clean = (t.tagIds||[]).filter(id=>ids.has(id));
+        if (clean.length !== (t.tagIds||[]).length) updates[`tasks/${t.id}/tagIds`] = clean;
+      });
+      await db.ref().update(updates);
+    } finally { setSyncing(false); }
+    setTagModal(false);
+  }, [tasks]);
+
+  // ── Tela de identificação ─────────────────────────────────────────────────
+  if (!currentUser) {
+    return <UserSelectScreen members={members} onSelect={selectUser} onAddMember={addMember} onRemoveMember={removeMember} />;
+  }
+
+  const userInitials = currentUser.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
+
+  // ── Render principal ──────────────────────────────────────────────────────
+  return (
+    <div style={{ maxWidth:1140, margin:'0 auto', padding:'20px 16px' }}>
+
+      {/* Header */}
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:18, flexWrap:'wrap', gap:10 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+          <div style={{ width:36, height:36, background:'#185FA5', borderRadius:9, display:'flex', alignItems:'center', justifyContent:'center', fontSize:20, color:'#fff', flexShrink:0 }}>⚓</div>
+          <div>
+            <div style={{ fontWeight:700, fontSize:16, color:'#111' }}>POB INCREASE – SBM</div>
+            <div style={{ fontSize:11, color:'#888' }}>Interface técnica · Gerenciador de tarefas</div>
+          </div>
+        </div>
+
+        <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+          {/* Status de sync */}
+          <div style={{ fontSize:11, color:!connected?'#A32D2D':syncing?'#854F0B':'#3B6D11', display:'flex', alignItems:'center', gap:4 }}>
+            <span style={{ width:7, height:7, borderRadius:'50%', background:!connected?'#E24B4A':syncing?'#EF9F27':'#3B6D11', display:'inline-block' }} />
+            {!connected ? 'Sem conexão' : syncing ? 'Salvando…' : lastSync ? `Sync ${lastSync.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}` : 'Conectado'}
+          </div>
+
+          {/* Usuário atual */}
+          <button onClick={()=>{setCurrentUser(null);localStorage.removeItem('fpso_user');}}
+            title="Trocar usuário"
+            style={{ display:'flex', alignItems:'center', gap:7, padding:'5px 10px 5px 6px', border:'0.5px solid rgba(0,0,0,0.15)', borderRadius:20, background:'#fff', cursor:'pointer', fontFamily:'inherit' }}>
+            <span style={{ width:26, height:26, borderRadius:'50%', background:'#185FA5', color:'#fff', display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:700, flexShrink:0 }}>{userInitials}</span>
+            <span style={{ fontSize:12, fontWeight:500, color:'#333' }}>{currentUser}</span>
+            <span style={{ fontSize:10, color:'#bbb', marginLeft:2 }}>↩</span>
+          </button>
+
+          <button onClick={()=>setMembersModal(true)} style={{ ...S.btn, fontSize:12, color:'#555' }}>👥 Equipe</button>
+          <button onClick={()=>setTagModal(true)}     style={{ ...S.btn, fontSize:12, color:'#555' }}>🏷 Tags</button>
+          <button onClick={()=>setModal({})} style={{ ...S.btnP }}>+ Nova tarefa</button>
+        </div>
+      </div>
+
+      {/* Stats */}
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:8, marginBottom:14 }}>
+        {[
+          {val:stats.total,   lbl:'Total',      color:'#185FA5'},
+          {val:stats.active,  lbl:'Ativas',     color:'#0F6E56'},
+          {val:stats.overdue, lbl:'Atrasadas',  color:'#A32D2D'},
+          {val:stats.done,    lbl:'Concluídas', color:'#3B6D11'},
+        ].map(s=>(
+          <div key={s.lbl} style={{ background:'#fff', border:'0.5px solid rgba(0,0,0,0.12)', borderRadius:10, padding:'10px 14px', textAlign:'center' }}>
+            <div style={{ fontSize:26, fontWeight:700, color:s.color, lineHeight:1.2 }}>{s.val}</div>
+            <div style={{ fontSize:11, color:'#888', marginTop:2 }}>{s.lbl}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Toolbar */}
+      <div style={{ background:'#fff', border:'0.5px solid rgba(0,0,0,0.12)', borderRadius:10, padding:'8px 10px', marginBottom:10, display:'flex', flexWrap:'wrap', gap:6, alignItems:'center' }}>
+        <div style={{ display:'flex', gap:2, background:'#f0f0ec', borderRadius:8, padding:3 }}>
+          {[{id:'board',label:'⊞ Quadro'},{id:'list',label:'≡ Lista'},{id:'calendar',label:'▦ Calendário'}].map(v=>(
+            <button key={v.id} onClick={()=>setView(v.id)} style={{
+              padding:'5px 13px', borderRadius:6, fontSize:12, fontWeight:500, cursor:'pointer', fontFamily:'inherit',
+              border:view===v.id?'0.5px solid rgba(0,0,0,0.15)':'none',
+              background:view===v.id?'#fff':'transparent',
+              color:view===v.id?'#111':'#666',
+            }}>{v.label}</button>
+          ))}
+        </div>
+        {view!=='calendar' && <>
+          <input type="text" placeholder="🔍 Buscar tarefa..." value={search} onChange={e=>setSearch(e.target.value)} style={{ ...S.inp, flex:1, minWidth:140 }} />
+          <select value={filterDisc}    onChange={e=>setFilterDisc(e.target.value)}    style={{ ...S.inp, minWidth:120, width:'auto' }}>
+            <option value="">Disciplina</option>
+            {DISCIPLINES.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}
+          </select>
+          <select value={filterPri}     onChange={e=>setFilterPri(e.target.value)}     style={{ ...S.inp, minWidth:110, width:'auto' }}>
+            <option value="">Prioridade</option>
+            {Object.entries(PRIORITIES).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
+          </select>
+          <select value={filterPerson}  onChange={e=>setFilterPerson(e.target.value)}  style={{ ...S.inp, minWidth:130, width:'auto' }}>
+            <option value="">Responsável</option>
+            {allPastAssignees.map(p=><option key={p} value={p}>{p}</option>)}
+          </select>
+          <select value={filterCreator} onChange={e=>setFilterCreator(e.target.value)} style={{ ...S.inp, minWidth:130, width:'auto' }}>
+            <option value="">Criado por</option>
+            {members.map(p=><option key={p} value={p}>{p}</option>)}
+          </select>
+        </>}
+      </div>
+
+      {view==='board'    && <BoardView    tasks={active} onEdit={t=>setModal(t)} onDelete={deleteTask} setStatus={setStatus} toggleCheck={toggleCheck} tagById={tagById} />}
+      {view==='list'     && <ListView     tasks={active} onEdit={t=>setModal(t)} onDelete={deleteTask} setStatus={setStatus} toggleCheck={toggleCheck} tagById={tagById} />}
+      {view==='calendar' && <CalendarView tasks={tasks.filter(t=>t.status!=='done')} onEdit={t=>setModal(t)} calMonth={calMonth} setCalMonth={setCalMonth} />}
+
+      {/* Concluídas */}
+      {view!=='calendar' && (
+        <div style={{ background:'#fff', border:'0.5px solid rgba(0,0,0,0.12)', borderRadius:10, marginTop:12 }}>
+          <button onClick={()=>setShowDone(!showDone)} style={{ width:'100%', display:'flex', alignItems:'center', justifyContent:'space-between', padding:'11px 14px', background:'none', border:'none', cursor:'pointer', fontSize:13, fontWeight:600, borderRadius:10, fontFamily:'inherit', color:'#333' }}>
+            <span style={{ display:'flex', alignItems:'center', gap:7 }}>
+              ✓ Concluídas
+              <span style={{ background:'#EAF3DE', color:'#3B6D11', border:'0.5px solid #97C459', borderRadius:999, fontSize:11, padding:'1px 7px', fontWeight:600 }}>{done.length}</span>
+            </span>
+            <span style={{ fontSize:13, color:'#aaa' }}>{showDone?'▲':'▼'}</span>
+          </button>
+          {showDone && (
+            <div style={{ padding:'0 10px 10px', borderTop:'0.5px solid rgba(0,0,0,0.08)' }}>
+              {done.length===0
+                ? <div style={{ textAlign:'center', color:'#bbb', padding:'24px 0', fontSize:13 }}>Nenhuma tarefa concluída</div>
+                : done.map(t=><DoneRow key={t.id} task={t} tagById={tagById} onRestore={()=>setStatus(t.id,'todo')} onDelete={()=>deleteTask(t.id)} />)
+              }
+            </div>
+          )}
+        </div>
+      )}
+
+      {modal!==null  && <TaskModal task={modal} tags={tags} members={members} currentUser={currentUser} allPastAssignees={allPastAssignees} onSave={saveTask} setStatus={setStatus} onClose={()=>setModal(null)} />}
+      {tagModal      && <TagManagerModal tags={tags} onSave={saveTags} onClose={()=>setTagModal(false)} />}
+      {membersModal  && <MembersModal members={members} currentUser={currentUser} onAdd={addMember} onRemove={removeMember} onClose={()=>setMembersModal(false)} />}
+    </div>
+  );
+}
+
+// ─── Members Modal ────────────────────────────────────────────────────────────
+function MembersModal({ members, currentUser, onAdd, onRemove, onClose }) {
+  const [newName, setNewName] = useState('');
+  const add = () => { const n=newName.trim(); if(!n)return; onAdd(n); setNewName(''); };
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:200, display:'flex', alignItems:'flex-start', justifyContent:'center', padding:'30px 16px', overflowY:'auto' }} onClick={onClose}>
+      <div style={{ background:'#fff', borderRadius:16, width:'100%', maxWidth:440, boxShadow:'0 12px 48px rgba(0,0,0,0.2)' }} onClick={e=>e.stopPropagation()}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'14px 18px', borderBottom:'0.5px solid rgba(0,0,0,0.08)' }}>
+          <div>
+            <div style={{ fontWeight:700, fontSize:15 }}>Equipe do projeto</div>
+            <div style={{ fontSize:11, color:'#888', marginTop:2 }}>Membros com acesso à ferramenta</div>
+          </div>
+          <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', fontSize:20, color:'#bbb' }}>✕</button>
+        </div>
+        <div style={{ padding:'14px 18px', display:'flex', flexDirection:'column', gap:10 }}>
+          <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+            {members.map(m=>(
+              <div key={m} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 12px', background:'#fafaf8', border:'0.5px solid rgba(0,0,0,0.1)', borderRadius:10 }}>
+                <span style={{ width:32, height:32, borderRadius:'50%', background:m===currentUser?'#185FA5':'#e0e0dc', color:m===currentUser?'#fff':'#555', display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:700, flexShrink:0 }}>
+                  {m.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase()}
+                </span>
+                <span style={{ flex:1, fontSize:13, fontWeight:m===currentUser?600:400 }}>
+                  {m}{m===currentUser&&<span style={{ fontSize:11, color:'#185FA5', marginLeft:6 }}>• você</span>}
+                </span>
+                {m!==currentUser && (
+                  <button onClick={()=>onRemove(m)} title="Remover" style={{ background:'none', border:'none', cursor:'pointer', color:'#ddd', fontSize:16, padding:'0 4px' }}>✕</button>
+                )}
+              </div>
+            ))}
+          </div>
+          <div style={{ borderTop:'0.5px solid rgba(0,0,0,0.08)', paddingTop:12 }}>
+            <div style={{ ...S.lbl, marginBottom:8 }}>Adicionar membro</div>
+            <div style={{ display:'flex', gap:6 }}>
+              <input style={S.inp} type="text" value={newName} placeholder="Nome completo ou função"
+                onChange={e=>setNewName(e.target.value)} onKeyDown={e=>e.key==='Enter'&&(e.preventDefault(),add())} />
+              <button onClick={add} style={{ ...S.btnP, whiteSpace:'nowrap' }}>Adicionar</button>
+            </div>
+          </div>
+        </div>
+        <div style={{ display:'flex', justifyContent:'flex-end', padding:'12px 18px', borderTop:'0.5px solid rgba(0,0,0,0.08)' }}>
+          <button onClick={onClose} style={S.btn}>Fechar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Calendar View ────────────────────────────────────────────────────────────
+function CalendarView({ tasks, onEdit, calMonth, setCalMonth }) {
+  const {y,m} = calMonth;
+  const firstDow    = new Date(y,m,1).getDay();
+  const daysInMonth = new Date(y,m+1,0).getDate();
+  const today = new Date(); today.setHours(0,0,0,0);
+
+  const byDay = useMemo(() => {
+    const map={};
+    tasks.forEach(t=>{
+      if(!t.dueDate)return;
+      const k=t.dueDate.slice(0,10);
+      if(!map[k])map[k]=[];
+      map[k].push(t);
+    });
+    return map;
+  },[tasks]);
+
+  const undated = tasks.filter(t=>!t.dueDate);
+  const cells=[];
+  for(let i=0;i<firstDow;i++)cells.push(null);
+  for(let d=1;d<=daysInMonth;d++)cells.push(d);
+  while(cells.length%7!==0)cells.push(null);
+
+  const prevMonth=()=>setCalMonth(({y,m})=>m===0?{y:y-1,m:11}:{y,m:m-1});
+  const nextMonth=()=>setCalMonth(({y,m})=>m===11?{y:y+1,m:0}:{y,m:m+1});
+  const goToday=()=>{const d=new Date();setCalMonth({y:d.getFullYear(),m:d.getMonth()});};
+
+  return (
+    <div style={{ background:'#fff', border:'0.5px solid rgba(0,0,0,0.12)', borderRadius:12, overflow:'hidden' }}>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'12px 16px', borderBottom:'0.5px solid rgba(0,0,0,0.08)', background:'#fafaf8' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+          <button onClick={prevMonth} style={{ ...S.btn, padding:'4px 10px', fontSize:17 }}>‹</button>
+          <span style={{ fontWeight:700, fontSize:15, minWidth:170, textAlign:'center' }}>{MONTHS_PT[m]} {y}</span>
+          <button onClick={nextMonth} style={{ ...S.btn, padding:'4px 10px', fontSize:17 }}>›</button>
+        </div>
+        <button onClick={goToday} style={{ ...S.btn, fontSize:12 }}>Hoje</button>
+      </div>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', background:'#f4f3ef', borderBottom:'0.5px solid rgba(0,0,0,0.08)' }}>
+        {WEEKDAYS_PT.map((w,i)=>(
+          <div key={w} style={{ textAlign:'center', fontSize:11, fontWeight:700, color:i===0||i===6?'#bbb':'#666', padding:'7px 0', letterSpacing:'0.04em' }}>{w}</div>
+        ))}
+      </div>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)' }}>
+        {cells.map((d,i)=>{
+          if(d===null)return<div key={'e'+i} style={{ minHeight:100, background:'#fafaf8', borderRight:'0.5px solid rgba(0,0,0,0.06)', borderBottom:'0.5px solid rgba(0,0,0,0.06)' }}/>;
+          const dateStr=`${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+          const dayTasks=byDay[dateStr]||[];
+          const cellDate=new Date(y,m,d);cellDate.setHours(0,0,0,0);
+          const isToday=cellDate.getTime()===today.getTime();
+          const isPast=cellDate<today&&!isToday;
+          const isWeekend=new Date(y,m,d).getDay()===0||new Date(y,m,d).getDay()===6;
+          return(
+            <div key={d} style={{ minHeight:100, padding:'6px 5px 4px', borderRight:'0.5px solid rgba(0,0,0,0.06)', borderBottom:'0.5px solid rgba(0,0,0,0.06)', background:isToday?'#EBF4FF':isWeekend?'#faf9f6':'#fff' }}>
+              <div style={{ marginBottom:5 }}>
+                {isToday
+                  ?<span style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:22, height:22, borderRadius:'50%', background:'#185FA5', color:'#fff', fontSize:12, fontWeight:700 }}>{d}</span>
+                  :<span style={{ fontSize:12, fontWeight:500, color:isPast&&dayTasks.length>0?'#A32D2D':isPast?'#ccc':isWeekend?'#aaa':'#333' }}>{d}</span>
+                }
+              </div>
+              <div style={{ display:'flex', flexDirection:'column', gap:2 }}>
+                {dayTasks.slice(0,3).map(t=>{
+                  const disc=(t.discs||[]).map(id=>discById[id]).filter(Boolean)[0];
+                  const dot=disc?disc.color:PRIORITIES[t.priority||'medium'].color;
+                  // Atraso só em dias anteriores a hoje. Dia do vencimento (inclusive hoje) não é atraso.
+                  const isOverdue = isPast;
+                  return(
+                    <button key={t.id} onClick={()=>onEdit(t)} title={`${t.title}${t.createdBy?' · '+t.createdBy:''}`} style={{ display:'flex', alignItems:'center', gap:4, fontSize:10, padding:'2px 5px', borderRadius:4, cursor:'pointer', textAlign:'left', background:isOverdue?'#FFF5F5':'#EFF6FF', border:`0.5px solid ${isOverdue?'#F09595':'#BFDBFE'}`, color:isOverdue?'#791F1F':'#1e3a5f', fontFamily:'inherit', width:'100%', overflow:'hidden' }}>
+                      <span style={{ width:6, height:6, borderRadius:'50%', background:dot, flexShrink:0 }}/>
+                      <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1 }}>{t.title}</span>
+                    </button>
+                  );
+                })}
+                {dayTasks.length>3&&<span style={{ fontSize:10, color:'#888', paddingLeft:4 }}>+{dayTasks.length-3}</span>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ padding:'10px 16px', borderTop:'0.5px solid rgba(0,0,0,0.08)', background:'#fafaf8', display:'flex', flexWrap:'wrap', gap:14, alignItems:'flex-start' }}>
+        <div>
+          <div style={{ fontSize:10, fontWeight:700, color:'#aaa', textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:5 }}>Disciplinas</div>
+          <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
+            {DISCIPLINES.map(d=>(
+              <span key={d.id} style={{ display:'inline-flex', alignItems:'center', gap:4, fontSize:11, color:d.text }}>
+                <span style={{ width:8, height:8, borderRadius:'50%', background:d.color }}/>{d.name}
+              </span>
+            ))}
+          </div>
+        </div>
+        {undated.length>0&&(
+          <div style={{ marginLeft:'auto' }}>
+            <div style={{ fontSize:10, fontWeight:700, color:'#aaa', textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:5 }}>Sem data ({undated.length})</div>
+            <div style={{ display:'flex', flexWrap:'wrap', gap:4 }}>
+              {undated.map(t=><button key={t.id} onClick={()=>onEdit(t)} style={{ ...S.btn, fontSize:11, padding:'2px 8px', color:'#555' }}>{t.title}</button>)}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Board View ───────────────────────────────────────────────────────────────
+function BoardView({ tasks, onEdit, onDelete, setStatus, toggleCheck, tagById }) {
+  const [drag,setDrag]=useState(null);
+  return(
+    <div style={{ display:'flex', gap:10 }}>
+      {['todo','progress','review'].map(col=>{
+        const colTasks=tasks.filter(t=>t.status===col);
+        const s=statusById[col];
+        return(
+          <div key={col} onDragOver={e=>e.preventDefault()} onDrop={()=>{if(drag){setStatus(drag,col);setDrag(null);}}}
+            style={{ flex:1, minWidth:220, background:'#f5f4f0', border:'0.5px solid rgba(0,0,0,0.1)', borderRadius:12, padding:10 }}>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
+              <span style={{ fontSize:12, fontWeight:700, color:'#444' }}>{s.label}</span>
+              <span style={{ background:'#fff', border:'0.5px solid rgba(0,0,0,0.12)', borderRadius:999, fontSize:11, padding:'1px 8px', color:'#666' }}>{colTasks.length}</span>
+            </div>
+            {colTasks.map(t=>(
+              <div key={t.id} draggable onDragStart={()=>setDrag(t.id)} onDragEnd={()=>setDrag(null)}>
+                <TaskCard task={t} onEdit={onEdit} onDelete={onDelete} setStatus={setStatus} toggleCheck={toggleCheck} tagById={tagById}/>
+              </div>
+            ))}
+            {colTasks.length===0&&<div style={{ textAlign:'center', color:'#ccc', fontSize:12, padding:'24px 0' }}>Arraste aqui</div>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── List View ────────────────────────────────────────────────────────────────
+function ListView({ tasks, onEdit, onDelete, setStatus, toggleCheck, tagById }) {
+  if(!tasks.length)return(
+    <div style={{ background:'#fff', border:'0.5px solid rgba(0,0,0,0.12)', borderRadius:10, padding:'48px 0', textAlign:'center', color:'#bbb', fontSize:13 }}>
+      Nenhuma tarefa ativa. Clique em "+ Nova tarefa" para começar.
+    </div>
+  );
+  return<div style={{ display:'flex', flexDirection:'column', gap:8 }}>{tasks.map(t=><TaskCard key={t.id} task={t} onEdit={onEdit} onDelete={onDelete} setStatus={setStatus} toggleCheck={toggleCheck} tagById={tagById} list/>)}</div>;
+}
+
+// ─── Task Card ────────────────────────────────────────────────────────────────
+function TaskCard({ task, onEdit, onDelete, setStatus, toggleCheck, tagById, list }) {
+  const [open,setOpen]=useState(list||false);
+  const cl=task.checklist||[];
+  const doneCnt=cl.filter(c=>c.done).length;
+  const pct=cl.length?Math.round(doneCnt/cl.length*100):0;
+  const ds=dateStatus(task.dueDate);
+  const pri=PRIORITIES[task.priority||'medium'];
+  const discs=(task.discs||[]).map(id=>discById[id]).filter(Boolean);
+  const taskTags=(task.tagIds||[]).map(id=>tagById[id]).filter(Boolean);
+
+  return(
+    <div style={{ background:'#fff', borderLeft:`3px solid ${pri.color}`, border:`0.5px solid rgba(0,0,0,0.11)`, borderLeft:`3px solid ${pri.color}`, borderRadius:8, padding:'10px 12px', marginBottom:8, boxShadow:open?'0 2px 10px rgba(0,0,0,0.07)':'none' }}>
+      <div style={{ display:'flex', alignItems:'flex-start', gap:6 }}>
+        <div style={{ flex:1, minWidth:0 }}>
+          <div style={{ fontWeight:600, fontSize:13, marginBottom:5, cursor:'pointer', lineHeight:1.35, color:'#111' }} onClick={()=>setOpen(!open)}>{task.title}</div>
+          <div style={{ display:'flex', flexWrap:'wrap', gap:4, marginBottom:4 }}>
+            {ds&&<Pill label={ds.label} color={ds.color} bg={ds.bg} border={ds.border}/>}
+            <Pill label={pri.label} color={pri.color} bg={pri.bg} border={pri.border}/>
+            {discs.map(d=><Pill key={d.id} label={d.name} color={d.text} bg={d.bg} border={d.border}/>)}
+            {taskTags.map(t=>{const c=tagColorById[t.colorId]||TAG_COLORS[0];return<Pill key={t.id} label={t.name} color={c.text} bg={c.bg} border={c.border}/>;  })}
+          </div>
+          {(task.assignees||[]).length>0&&(
+            <div style={{ display:'flex', flexWrap:'wrap', gap:3, marginBottom:4 }}>
+              {task.assignees.map(p=><span key={p} style={{ fontSize:11, background:'#f0f0ec', color:'#666', padding:'1px 7px', borderRadius:999 }}>{p}</span>)}
+            </div>
+          )}
+          {task.createdBy&&(
+            <div style={{ fontSize:10, color:'#bbb', marginBottom:3 }}>
+              Criado por <strong style={{ color:'#999' }}>{task.createdBy}</strong>
+              {task.createdAt&&` · ${new Date(task.createdAt).toLocaleDateString('pt-BR')}`}
+              {task.updatedBy&&task.updatedBy!==task.createdBy&&` · Editado por ${task.updatedBy}`}
+            </div>
+          )}
+          {cl.length>0&&(
+            <div style={{ marginTop:4 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:'#999', marginBottom:3 }}>
+                <span>{doneCnt}/{cl.length} itens</span><span>{pct}%</span>
+              </div>
+              <div style={{ height:3, background:'#eee', borderRadius:2, overflow:'hidden' }}>
+                <div style={{ height:'100%', background:'#185FA5', borderRadius:2, width:pct+'%', transition:'width 0.2s' }}/>
+              </div>
+            </div>
+          )}
+        </div>
+        <div style={{ display:'flex', gap:1, flexShrink:0 }}>
+          <button onClick={()=>setStatus(task.id,'done')} title="Concluir tarefa" style={{ background:'#EAF3DE', border:'0.5px solid #97C459', cursor:'pointer', color:'#3B6D11', padding:'3px 7px', fontSize:14, borderRadius:6, fontWeight:700, lineHeight:1 }}>✓</button>
+          <button onClick={()=>onEdit(task)} title="Editar"  style={{ background:'none', border:'none', cursor:'pointer', color:'#bbb', padding:'3px 5px', fontSize:15 }}>✎</button>
+          <button onClick={()=>onDelete(task.id)} title="Excluir" style={{ background:'none', border:'none', cursor:'pointer', color:'#ddd', padding:'3px 5px', fontSize:15 }}>✕</button>
+        </div>
+      </div>
+
+      {open&&<>
+        {task.notes&&<div style={{ marginTop:8, padding:'8px 10px', background:'#fafaf8', borderRadius:6, fontSize:12, color:'#555', whiteSpace:'pre-wrap', border:'0.5px solid rgba(0,0,0,0.08)', lineHeight:1.5 }}>{task.notes}</div>}
+        {cl.length>0&&<div style={{ marginTop:8 }}>{cl.map(c=>(
+          <div key={c.id} style={{ display:'flex', alignItems:'flex-start', gap:8, padding:'4px 0', borderBottom:'0.5px solid rgba(0,0,0,0.05)' }}>
+            <input type="checkbox" checked={c.done} onChange={()=>toggleCheck(task.id,c.id)} style={{ marginTop:2, accentColor:'#185FA5', cursor:'pointer', width:14, height:14 }}/>
+            <span style={{ fontSize:12, textDecoration:c.done?'line-through':'none', color:c.done?'#bbb':'#333' }}>{c.text}</span>
+          </div>
+        ))}</div>}
+        <div style={{ height:'0.5px', background:'rgba(0,0,0,0.07)', margin:'10px 0' }}/>
+        <div style={{ display:'flex', flexWrap:'wrap', gap:4 }}>
+          {STATUSES.filter(s=>s.id!==task.status&&s.id!=='done').map(s=>(
+            <button key={s.id} onClick={()=>setStatus(task.id,s.id)} style={{ ...S.btn, fontSize:11, padding:'3px 9px' }}>→ {s.label}</button>
+          ))}
+        </div>
+      </>}
+      {!open&&<button onClick={()=>setOpen(true)} style={{ fontSize:11, background:'none', border:'none', color:'#bbb', cursor:'pointer', marginTop:4, padding:0, fontFamily:'inherit' }}>▾ Detalhes</button>}
+    </div>
+  );
+}
+
+// ─── Done Row ─────────────────────────────────────────────────────────────────
+function DoneRow({ task, tagById, onRestore, onDelete }) {
+  const taskTags=(task.tagIds||[]).map(id=>tagById[id]).filter(Boolean);
+  return(
+    <div style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 4px', borderBottom:'0.5px solid rgba(0,0,0,0.06)' }}>
+      <span style={{ color:'#3B6D11', fontSize:15, flexShrink:0 }}>✓</span>
+      <div style={{ flex:1, minWidth:0 }}>
+        <div style={{ fontSize:13, color:'#aaa', textDecoration:'line-through', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{task.title}</div>
+        <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginTop:2, alignItems:'center' }}>
+          {task.completedAt&&<span style={{ fontSize:11, color:'#ccc' }}>Concluída em {new Date(task.completedAt).toLocaleDateString('pt-BR')}{task.completedBy&&` por ${task.completedBy}`}</span>}
+          {taskTags.map(t=>{const c=tagColorById[t.colorId]||TAG_COLORS[0];return<Pill key={t.id} label={t.name} color={c.text} bg={c.bg} border={c.border}/>;  })}
+        </div>
+      </div>
+      <button onClick={onRestore} style={{ fontSize:11, padding:'3px 9px', border:'0.5px solid #85B7EB', background:'#E6F1FB', color:'#185FA5', borderRadius:6, cursor:'pointer', fontFamily:'inherit', whiteSpace:'nowrap' }}>Restaurar</button>
+      <button onClick={onDelete}  style={{ background:'none', border:'none', cursor:'pointer', color:'#ddd', padding:'3px 6px', fontSize:15 }}>✕</button>
+    </div>
+  );
+}
+
+// ─── Tag Manager Modal ────────────────────────────────────────────────────────
+function TagManagerModal({ tags, onSave, onClose }) {
+  const [localTags,setLocalTags]=useState(tags);
+  const [newName,setNewName]=useState('');
+  const [newColor,setNewColor]=useState('blue');
+  const [editId,setEditId]=useState(null);
+  const addTag=()=>{const n=newName.trim();if(!n)return;if(localTags.some(t=>t.name.toLowerCase()===n.toLowerCase())){alert('Nome já existe.');return;}setLocalTags(p=>[...p,{id:'tag-'+newId(),name:n,colorId:newColor}]);setNewName('');};
+  const updateTag=(id,f,v)=>setLocalTags(p=>p.map(t=>t.id===id?{...t,[f]:v}:t));
+  const removeTag=id=>{if(confirm('Excluir tag?'))setLocalTags(p=>p.filter(t=>t.id!==id));};
+  return(
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:200, display:'flex', alignItems:'flex-start', justifyContent:'center', padding:'30px 16px', overflowY:'auto' }} onClick={onClose}>
+      <div style={{ background:'#fff', borderRadius:16, width:'100%', maxWidth:520, boxShadow:'0 12px 48px rgba(0,0,0,0.2)' }} onClick={e=>e.stopPropagation()}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'14px 18px', borderBottom:'0.5px solid rgba(0,0,0,0.08)' }}>
+          <div><div style={{ fontWeight:700, fontSize:15 }}>Gerenciar tags</div><div style={{ fontSize:11, color:'#888', marginTop:2 }}>Classificações adicionais para as tarefas</div></div>
+          <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', fontSize:20, color:'#bbb' }}>✕</button>
+        </div>
+        <div style={{ padding:'14px 18px', overflowY:'auto', maxHeight:'68vh', display:'flex', flexDirection:'column', gap:14 }}>
+          <div style={{ background:'#f8f8f5', border:'0.5px solid rgba(0,0,0,0.1)', borderRadius:10, padding:12 }}>
+            <div style={S.lbl}>Nova tag</div>
+            <div style={{ display:'flex', gap:6, marginBottom:10 }}>
+              <input style={S.inp} type="text" value={newName} onChange={e=>setNewName(e.target.value)} onKeyDown={e=>e.key==='Enter'&&(e.preventDefault(),addTag())} placeholder="Nome da tag"/>
+              <button onClick={addTag} style={{ ...S.btnP, whiteSpace:'nowrap' }}>Adicionar</button>
+            </div>
+            <div style={{ display:'flex', flexWrap:'wrap', gap:7 }}>
+              {TAG_COLORS.map(c=><button key={c.id} onClick={()=>setNewColor(c.id)} style={{ width:28, height:28, borderRadius:'50%', background:c.color, cursor:'pointer', border:'none', outline:newColor===c.id?'3px solid #333':'2px solid transparent', outlineOffset:2 }}/>)}
+            </div>
+          </div>
+          <div>
+            <div style={S.lbl}>Tags existentes ({localTags.length})</div>
+            {localTags.length===0
+              ?<div style={{ textAlign:'center', color:'#ccc', fontSize:13, padding:'20px 0' }}>Nenhuma tag</div>
+              :localTags.map(t=>{const c=tagColorById[t.colorId]||TAG_COLORS[0];return(
+                <div key={t.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 10px', background:'#fff', border:'0.5px solid rgba(0,0,0,0.1)', borderRadius:8, marginBottom:6 }}>
+                  {editId===t.id?(
+                    <>
+                      <input style={{ ...S.inp, flex:1 }} type="text" value={t.name} autoFocus onChange={e=>updateTag(t.id,'name',e.target.value)} onKeyDown={e=>e.key==='Enter'&&setEditId(null)}/>
+                      <div style={{ display:'flex', gap:4 }}>{TAG_COLORS.map(col=><button key={col.id} onClick={()=>updateTag(t.id,'colorId',col.id)} style={{ width:20, height:20, borderRadius:'50%', background:col.color, cursor:'pointer', border:'none', outline:t.colorId===col.id?'2px solid #333':'2px solid transparent', outlineOffset:1 }}/>)}</div>
+                      <button onClick={()=>setEditId(null)} style={{ background:'none', border:'none', cursor:'pointer', color:'#3B6D11', fontSize:18 }}>✓</button>
+                    </>
+                  ):(
+                    <>
+                      <span style={{ display:'inline-flex', alignItems:'center', gap:6, flex:1 }}>
+                        <span style={{ width:11, height:11, borderRadius:'50%', background:c.color }}/>
+                        <span style={{ background:c.bg, color:c.text, border:`0.5px solid ${c.border}`, borderRadius:999, fontSize:12, padding:'2px 10px', fontWeight:600 }}>{t.name}</span>
+                      </span>
+                      <button onClick={()=>setEditId(t.id)} style={{ background:'none', border:'none', cursor:'pointer', color:'#bbb', fontSize:15, padding:'0 5px' }}>✎</button>
+                      <button onClick={()=>removeTag(t.id)} style={{ background:'none', border:'none', cursor:'pointer', color:'#ddd', fontSize:15, padding:'0 5px' }}>✕</button>
+                    </>
+                  )}
+                </div>
+              );})}
+          </div>
+        </div>
+        <div style={{ display:'flex', justifyContent:'flex-end', gap:8, padding:'12px 18px', borderTop:'0.5px solid rgba(0,0,0,0.08)' }}>
+          <button onClick={onClose} style={S.btn}>Cancelar</button>
+          <button onClick={()=>onSave(localTags)} style={S.btnP}>Salvar alterações</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Task Modal ───────────────────────────────────────────────────────────────
+function TaskModal({ task, tags, members, currentUser, allPastAssignees, onSave, setStatus, onClose }) {
+  const isNew=!task.id;
+  const [form,setForm]=useState({
+    title:'',dueDate:'',priority:'medium',status:'todo',
+    discs:[],tagIds:[],assignees:[],checklist:[],notes:'',
+    ...task,
+    createdBy:task.createdBy||currentUser,
+  });
+  const [newItem,setNewItem]=useState('');
+  const [newPerson,setNewPerson]=useState('');
+
+  const toggleDisc =id=>setForm(f=>({...f,discs: (f.discs ||[]).includes(id)?f.discs.filter(x=>x!==id) :[...(f.discs ||[]),id]}));
+  const toggleTagId=id=>setForm(f=>({...f,tagIds:(f.tagIds||[]).includes(id)?f.tagIds.filter(x=>x!==id):[...(f.tagIds||[]),id]}));
+  const addCheck=()=>{if(!newItem.trim())return;setForm(f=>({...f,checklist:[...(f.checklist||[]),{id:newId(),text:newItem,done:false}]}));setNewItem('');};
+  const addPerson=p=>{const x=(p||newPerson).trim();if(!x||(form.assignees||[]).includes(x))return;setForm(f=>({...f,assignees:[...(f.assignees||[]),x]}));setNewPerson('');};
+  const submit=()=>{if(!form.title.trim()){alert('Adicione um título.');return;}onSave(form);};
+
+  return(
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:100, display:'flex', alignItems:'flex-start', justifyContent:'center', padding:'30px 16px', overflowY:'auto' }} onClick={onClose}>
+      <div style={{ background:'#fff', borderRadius:16, width:'100%', maxWidth:640, boxShadow:'0 12px 48px rgba(0,0,0,0.2)' }} onClick={e=>e.stopPropagation()}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'14px 18px', borderBottom:'0.5px solid rgba(0,0,0,0.08)' }}>
+          <span style={{ fontWeight:700, fontSize:15 }}>{isNew?'Nova tarefa':'Editar tarefa'}</span>
+          <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', fontSize:20, color:'#bbb' }}>✕</button>
+        </div>
+        <div style={{ padding:'16px 18px', overflowY:'auto', maxHeight:'75vh', display:'flex', flexDirection:'column', gap:14 }}>
+          <div>
+            <label style={S.lbl}>Título *</label>
+            <input style={S.inp} type="text" value={form.title} autoFocus onChange={e=>setForm({...form,title:e.target.value})} placeholder="Descreva a tarefa ou pendência de interface..."/>
+          </div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8 }}>
+            <div><label style={S.lbl}>Data limite</label><input style={S.inp} type="date" value={form.dueDate||''} onChange={e=>setForm({...form,dueDate:e.target.value})}/></div>
+            <div><label style={S.lbl}>Prioridade</label>
+              <select style={S.inp} value={form.priority} onChange={e=>setForm({...form,priority:e.target.value})}>
+                {Object.entries(PRIORITIES).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
+              </select>
+            </div>
+            <div><label style={S.lbl}>Status</label>
+              <select style={S.inp} value={form.status} onChange={e=>setForm({...form,status:e.target.value})}>
+                {STATUSES.map(s=><option key={s.id} value={s.id}>{s.label}</option>)}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label style={S.lbl}>Disciplinas envolvidas</label>
+            <div style={{ display:'flex', flexWrap:'wrap', gap:5 }}>
+              {DISCIPLINES.map(d=>{const sel=(form.discs||[]).includes(d.id);return<button key={d.id} onClick={()=>toggleDisc(d.id)} style={{ fontSize:12, padding:'4px 12px', borderRadius:999, cursor:'pointer', fontFamily:'inherit', border:`0.5px solid ${sel?d.border:'rgba(0,0,0,0.15)'}`, background:sel?d.bg:'#fafaf8', color:sel?d.text:'#666', fontWeight:sel?700:400 }}>{sel?'✓ ':''}{d.name}</button>;})}
+            </div>
+          </div>
+          {tags.length>0&&(
+            <div>
+              <label style={S.lbl}>Tags</label>
+              <div style={{ display:'flex', flexWrap:'wrap', gap:5 }}>
+                {tags.map(tag=>{const sel=(form.tagIds||[]).includes(tag.id);const c=tagColorById[tag.colorId]||TAG_COLORS[0];return<button key={tag.id} onClick={()=>toggleTagId(tag.id)} style={{ fontSize:12, padding:'4px 12px', borderRadius:999, cursor:'pointer', fontFamily:'inherit', border:`0.5px solid ${sel?c.border:'rgba(0,0,0,0.15)'}`, background:sel?c.bg:'#fafaf8', color:sel?c.text:'#666', fontWeight:sel?700:400 }}>{sel?'✓ ':''}{tag.name}</button>;})}
+              </div>
+            </div>
+          )}
+          <div>
+            <label style={S.lbl}>Responsáveis <span style={{fontWeight:400,textTransform:'none',letterSpacing:0,color:'#bbb',fontSize:10}}>(quem vai executar a ação)</span></label>
+            {/* Responsáveis já adicionados nesta task */}
+            <div style={{ display:'flex', flexWrap:'wrap', gap:4, marginBottom:8 }}>
+              {(form.assignees||[]).length===0 && (
+                <span style={{ fontSize:12, color:'#ccc', fontStyle:'italic' }}>Nenhum responsável adicionado</span>
+              )}
+              {(form.assignees||[]).map(p=>(
+                <span key={p} style={{ display:'inline-flex', alignItems:'center', gap:4, fontSize:12, background:'#f0f0ec', padding:'3px 10px', borderRadius:999, border:'0.5px solid rgba(0,0,0,0.1)' }}>
+                  {p}
+                  <button onClick={()=>setForm(f=>({...f,assignees:f.assignees.filter(x=>x!==p)}))}
+                    style={{ background:'none', border:'none', cursor:'pointer', color:'#aaa', fontSize:13, lineHeight:1, padding:0 }}>✕</button>
+                </span>
+              ))}
+            </div>
+            {/* Campo de digitação com autocomplete a partir de nomes já usados */}
+            <div style={{ display:'flex', gap:6 }}>
+              <div style={{ flex:1, position:'relative' }}>
+                <input style={S.inp} type="text" value={newPerson} onChange={e=>setNewPerson(e.target.value)}
+                  onKeyDown={e=>e.key==='Enter'&&(e.preventDefault(),addPerson())}
+                  placeholder="Nome do responsável..."
+                  list="assignee-history"/>
+                <datalist id="assignee-history">
+                  {allPastAssignees.filter(n=>!(form.assignees||[]).includes(n)).map(n=>(
+                    <option key={n} value={n}/>
+                  ))}
+                </datalist>
+              </div>
+              <button onClick={()=>addPerson()} style={{ ...S.btn, whiteSpace:'nowrap' }}>Adicionar</button>
+            </div>
+            <div style={{ fontSize:11, color:'#ccc', marginTop:4 }}>
+              {allPastAssignees.length>0 ? 'Nomes já utilizados aparecem como sugestão ao digitar.' : 'Digite o nome e clique em Adicionar. Nomes usados ficam salvos para uso futuro.'}
+            </div>
+          </div>
+          <div>
+            <label style={S.lbl}>Checklist de atividades</label>
+            <div style={{ marginBottom:6 }}>
+              {(form.checklist||[]).map(c=>(
+                <div key={c.id} style={{ display:'flex', alignItems:'flex-start', gap:8, padding:'5px 2px', borderBottom:'0.5px solid rgba(0,0,0,0.05)' }}>
+                  <input type="checkbox" checked={c.done} style={{ accentColor:'#185FA5', cursor:'pointer', marginTop:2, width:14, height:14 }} onChange={()=>setForm(f=>({...f,checklist:f.checklist.map(x=>x.id===c.id?{...x,done:!x.done}:x)}))}/>
+                  <span style={{ flex:1, fontSize:12, textDecoration:c.done?'line-through':'none', color:c.done?'#bbb':'#333', lineHeight:1.5 }}>{c.text}</span>
+                  <button onClick={()=>setForm(f=>({...f,checklist:f.checklist.filter(x=>x.id!==c.id)}))} style={{ background:'none', border:'none', cursor:'pointer', color:'#ddd', fontSize:15, padding:0 }}>✕</button>
+                </div>
+              ))}
+            </div>
+            <div style={{ display:'flex', gap:6 }}>
+              <input style={S.inp} type="text" value={newItem} onChange={e=>setNewItem(e.target.value)} onKeyDown={e=>e.key==='Enter'&&(e.preventDefault(),addCheck())} placeholder="Adicionar item ao checklist..."/>
+              <button onClick={addCheck} style={{ ...S.btn, whiteSpace:'nowrap' }}>Adicionar</button>
+            </div>
+          </div>
+          <div>
+            <label style={S.lbl}>Anotações / Contexto técnico</label>
+            <textarea style={{ ...S.inp, resize:'vertical', lineHeight:1.5 }} rows={3} value={form.notes||''} onChange={e=>setForm({...form,notes:e.target.value})} placeholder="Referências, normas, documentos relacionados, pendências de interface..."/>
+          </div>
+
+          {/* Rodapé de autoria — sempre visível, não editável */}
+          <div style={{ borderTop:'0.5px solid rgba(0,0,0,0.08)', paddingTop:12, display:'flex', alignItems:'center', gap:10 }}>
+            <span style={{ width:30, height:30, borderRadius:'50%', background:'#185FA5', color:'#fff', display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:700, flexShrink:0 }}>
+              {(form.createdBy||currentUser).split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase()}
+            </span>
+            <div>
+              <div style={{ fontSize:11, color:'#aaa', fontWeight:600, textTransform:'uppercase', letterSpacing:'0.05em' }}>Registrado por</div>
+              <div style={{ fontSize:13, fontWeight:600, color:'#333' }}>{form.createdBy||currentUser}</div>
+              {!isNew && task.updatedBy && task.updatedBy !== task.createdBy && (
+                <div style={{ fontSize:11, color:'#bbb', marginTop:1 }}>Última edição: {task.updatedBy}{task.updatedAt ? ` · ${new Date(task.updatedAt).toLocaleDateString('pt-BR')}` : ''}</div>
+              )}
+            </div>
+          </div>
+        </div>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8, padding:'12px 18px', borderTop:'0.5px solid rgba(0,0,0,0.08)' }}>
+          <div>
+            {!isNew && task.status!=='done' && (
+              <button onClick={()=>{ setStatus(task.id,'done'); onClose(); }}
+                style={{ padding:'7px 14px', background:'#EAF3DE', color:'#3B6D11', border:'0.5px solid #97C459', borderRadius:8, cursor:'pointer', fontWeight:600, fontSize:13, fontFamily:'inherit' }}>
+                ✓ Concluir tarefa
+              </button>
+            )}
+          </div>
+          <div style={{ display:'flex', gap:8 }}>
+            <button onClick={onClose} style={S.btn}>Cancelar</button>
+            <button onClick={submit} style={S.btnP}>{isNew?'Criar tarefa':'Salvar alterações'}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
