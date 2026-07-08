@@ -109,14 +109,23 @@ const DEFAULT_MEMBERS = [
 
 function newId() { return Date.now().toString(36) + Math.random().toString(36).slice(2); }
 
+// Converte "YYYY-MM-DD" em Date no fuso LOCAL (evita bug de UTC que joga a data 1 dia para trás).
+function parseLocalDate(str) {
+  if (!str) return null;
+  const s = String(str).slice(0,10);
+  const [y,m,d] = s.split('-').map(Number);
+  if (!y || !m || !d) return new Date(str); // fallback para formatos com hora (ISO completo)
+  return new Date(y, m-1, d); // meia-noite local
+}
+
 function dateStatus(date) {
   if (!date) return null;
   const t = new Date(); t.setHours(0,0,0,0);
-  const d = new Date(date); d.setHours(0,0,0,0);
+  const d = parseLocalDate(date); d.setHours(0,0,0,0);
   const diff = Math.round((d - t) / 86400000);
-  // Atraso só a partir do dia seguinte ao vencimento. Dia do vencimento = "Hoje", sem atraso.
+  // Atraso só a partir do dia seguinte ao vencimento. Dia do vencimento = "Vence hoje", sem atraso.
   if (diff < 0)   return { label:`${Math.abs(diff)}d atrasada`, color:'#A32D2D', bg:'#FCEBEB', border:'#F09595' };
-  if (diff === 0) return { label:'Hoje',     color:'#633806', bg:'#FAEEDA', border:'#EF9F27' };
+  if (diff === 0) return { label:'Vence hoje', color:'#633806', bg:'#FAEEDA', border:'#EF9F27' };
   if (diff <= 3)  return { label:`${diff}d`, color:'#854F0B', bg:'#FAEEDA', border:'#EF9F27' };
   return { label:d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}), color:'#3B6D11', bg:'#EAF3DE', border:'#97C459' };
 }
@@ -320,7 +329,7 @@ function App() {
     return {
       total:   tasks.length,
       active:  tasks.filter(t=>t.status!=='done').length,
-      overdue: tasks.filter(t=>t.status!=='done'&&t.dueDate&&new Date(new Date(t.dueDate).setHours(0,0,0,0))<today).length,
+      overdue: tasks.filter(t=>t.status!=='done'&&t.dueDate&&(()=>{const d=parseLocalDate(t.dueDate);d.setHours(0,0,0,0);return d<today;})()).length,
       done:    tasks.filter(t=>t.status==='done').length,
     };
   }, [tasks]);
